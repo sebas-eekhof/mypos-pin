@@ -21,7 +21,7 @@ namespace Pin {
             if(args.Length >= 1)
                 COM = args[0];
 
-            if(!IsAdministrator()) {
+            if(!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator)) {
                 Console.WriteLine("\n\nPlease run the application as Administrator.\n\nAutomatically closing this window in 10 seconds...");
                 Thread.Sleep(10000);
                 return;
@@ -106,13 +106,6 @@ namespace Pin {
             Console.WriteLine($"[APP] Starting myPOS transaction: EUR {amount.ToString()} ({description})");
             RequestResult transactionResult = terminal.Purchase(3.00, Currencies.EUR, "Description");
             Console.WriteLine($"[myPOS] {transactionResult}");
-        }
-
-        private static bool IsAdministrator() {
-            WindowsIdentity identity = WindowsIdentity.GetCurrent();
-            WindowsPrincipal principal = new WindowsPrincipal(identity);
-            return principal.IsInRole(WindowsBuiltInRole.Administrator);
-
         }
 
         protected static void TerminalResult(ProcessingResult res) {
