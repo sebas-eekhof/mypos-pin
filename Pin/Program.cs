@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Security.Principal;
@@ -9,9 +8,6 @@ using System.Threading.Tasks;
 using myPOS;
 using System.Web;
 using System.Configuration;
-using System.Collections.Specialized;
-
-// https://github.com/developermypos/myPOS-SDK-dotNET/tree/master?tab=readme-ov-file#make-transactions
 
 namespace Pin {
     internal class Program {
@@ -113,56 +109,64 @@ namespace Pin {
 
             ReceiveHttpRequest();
 
+            context.Response.Headers.Clear();
+            context.Response.SendChunked = false;
+            context.Response.Headers.Add("Server", string.Empty);
+            context.Response.Headers.Add("Content-Type", "application/json");
+            context.Response.Headers.Add("Date", string.Empty);
+            context.Response.StatusCode = 200;
+
             if(url.AbsolutePath.StartsWith("/start")) {
-                string rawAmount = query.Get("amount");
-                string rawDescription = query.Get("description");
-                context.Response.Headers.Clear();
-                context.Response.SendChunked = false;
-                context.Response.Headers.Add("Server", string.Empty);
-                context.Response.Headers.Add("Date", string.Empty);
+                string[] keys = query.AllKeys;
+                string rawAmount = keys.Contains("amount") ? query.Get("amount") : "";
+                string rawDescription = keys.Contains("description") ? query.Get("description") : "";
                 if(rawAmount.Trim().Length == 0 || rawDescription.Trim().Length == 0) {
-                    context.Response.StatusCode = 400;
+                    byte[] body = Encoding.UTF8.GetBytes("{\"success\": false, \"reason\": \"Invalid request parameters.\"}");
+                    context.Response.ContentLength64 = body.Length;
+                    context.Response.OutputStream.Write(body, 0, body.Length);
                     context.Response.Close();
                 }
                 try {
-                    StartPinTransaction(double.Parse(rawAmount), rawDescription);
-                    context.Response.StatusCode = 200;
+                    bool isStarted = StartPinTransaction(double.Parse(rawAmount), rawDescription);
+                    if(isStarted) {
+                        byte[] body = Encoding.UTF8.GetBytes("{\"success\": true}");
+                        context.Response.ContentLength64 = body.Length;
+                        context.Response.OutputStream.Write(body, 0, body.Length);
+                    } else {
+                        byte[] body = Encoding.UTF8.GetBytes("{\"success\": false, \"reason\": \"Terminal is busy.\"}");
+                        context.Response.ContentLength64 = body.Length;
+                        context.Response.OutputStream.Write(body, 0, body.Length);
+                    }
                     context.Response.Close();
                 } catch(Exception ex) {
                     Logger.App.Error(ex.Message);
-                    context.Response.StatusCode = 400;
+                    byte[] body = Encoding.UTF8.GetBytes("{\"success\": false, \"reason\": \"Something went wrong, please check the console for further information.\"}");
+                    context.Response.ContentLength64 = body.Length;
+                    context.Response.OutputStream.Write(body, 0, body.Length);
                     context.Response.Close();
                 }
             } else if(url.AbsolutePath.StartsWith("/cancel")) {
-                context.Response.Headers.Clear();
-                context.Response.SendChunked = false;
-                context.Response.Headers.Add("Server", string.Empty);
-                context.Response.Headers.Add("Date", string.Empty);
-                context.Response.StatusCode = 200;
+                byte[] body = Encoding.UTF8.GetBytes("{\"success\": true}");
+                context.Response.ContentLength64 = body.Length;
+                context.Response.OutputStream.Write(body, 0, body.Length);
                 context.Response.Close();
                 Logger.App.Info("Canceling transaction based on request");
-                CheckRequestResult(terminal.VendingStop());
+                _ = terminal.VendingStop();
             } else if(url.AbsolutePath.StartsWith("/callback")) {
-                context.Response.Headers.Clear();
-                context.Response.SendChunked = false;
-                context.Response.Headers.Add("Server", string.Empty);
-                context.Response.Headers.Add("Date", string.Empty);
-                context.Response.StatusCode = 200;
+                byte[] body = Encoding.UTF8.GetBytes("{\"success\": true}");
+                context.Response.ContentLength64 = body.Length;
+                context.Response.OutputStream.Write(body, 0, body.Length);
                 context.Response.Close();
                 Logger.App.Warn("Please change the callback url setting in the .config file");
             } else {
-                context.Response.Headers.Clear();
-                context.Response.SendChunked = false;
                 context.Response.StatusCode = 404;
-                context.Response.Headers.Add("Server", string.Empty);
-                context.Response.Headers.Add("Date", string.Empty);
                 context.Response.Close();
             }
         }
 
-        private static void StartPinTransaction(double amount, string description) {
+        private static bool StartPinTransaction(double amount, string description) {
             Logger.App.Info($"Starting MyPOS transaction: EUR {amount.ToString()} ({description})");
-            CheckRequestResult(terminal.Purchase(amount, Currencies.EUR, description));
+            return terminal.Purchase(amount, Currencies.EUR, description) == RequestResult.Processing;
         }
 
         protected static void TerminalResult(ProcessingResult res) {
@@ -173,13 +177,6 @@ namespace Pin {
                     TransactionSucceeded();
                 else
                     TransactionFailed(res.Status);
-        }
-
-        private static void CheckRequestResult(RequestResult result) {
-            if(result == RequestResult.NotInitialized) {
-                isReady = false;
-                _ = connectToTerminal();
-            }
         }
 
         private static void TransactionFailed(TransactionStatus reason) {
